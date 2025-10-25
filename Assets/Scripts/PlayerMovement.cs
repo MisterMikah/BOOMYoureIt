@@ -1,7 +1,6 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-[RequireComponent(typeof(Rigidbody2D), typeof(Collider2D))]
 public class PlayerMovement : MonoBehaviour
 {
     [Header("Player")]
@@ -17,7 +16,7 @@ public class PlayerMovement : MonoBehaviour
     public float groundCheckRadius = 0.2f;
     public LayerMask groundLayer;
 
-    [Header("Jump Feel")]
+    [Header("Jump")]
     public float coyoteTime = 0.1f;      // grace after leaving ground
     public float jumpBufferTime = 0.1f;  // buffer before landing
 
@@ -36,6 +35,10 @@ public class PlayerMovement : MonoBehaviour
 
     [Header("Visuals (Flip Container)")]
     public Transform graphics; // child holding all sprites/arrow
+    private SpriteRenderer spriteRenderer;
+
+    [Header("Animator")]
+    public Animator animator;
 
     // components and state
     private Rigidbody2D rb;
@@ -86,6 +89,7 @@ public class PlayerMovement : MonoBehaviour
     void Start()
     {
         rb = GetComponent<Rigidbody2D>();
+        spriteRenderer = GetComponent<SpriteRenderer>();
         rb.gravityScale = gravityScale;
         rb.freezeRotation = true;
         rb.interpolation = RigidbodyInterpolation2D.Interpolate;
@@ -98,6 +102,9 @@ public class PlayerMovement : MonoBehaviour
     // input, facing, flipping, and jump timers
     void Update()
     {
+
+        animator.SetFloat("Speed", Mathf.Abs(rb.linearVelocity.x));
+
         // facing direction from horizontal input
         if (moveInput.x > 0.1f) facingDir = 1;
         else if (moveInput.x < -0.1f) facingDir = -1;
@@ -117,6 +124,7 @@ public class PlayerMovement : MonoBehaviour
         // grounded + coyote time refill
         if (IsGrounded())
         {
+            
             lastGroundedTime = coyoteTime;
             jumpsRemaining = maxJumps;
             wallContactTimer = 0f;
@@ -129,6 +137,7 @@ public class PlayerMovement : MonoBehaviour
         // jump buffer (consume press)
         if (jumpPressed)
         {
+            animator.SetBool("IsJumping", true);
             lastJumpPressedTime = jumpBufferTime;
             jumpPressed = false;
         }
@@ -143,7 +152,7 @@ public class PlayerMovement : MonoBehaviour
     {
         // horizontal movement
         rb.linearVelocity = new Vector2(moveInput.x * moveSpeed, rb.linearVelocity.y);
-
+        
         // detect states
         bool grounded = IsGrounded();
         var wallInfo = CheckWallFacingSizeAware();
