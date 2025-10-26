@@ -52,6 +52,7 @@ public class PlayerMovement : MonoBehaviour
     private int lastFacingDir = 1;
     private float wallContactTimer;
     private Vector3 graphicsBaseScale;
+    private bool wasGrounded; // for landing detection
 
     // input setup
     void Awake()
@@ -97,13 +98,14 @@ public class PlayerMovement : MonoBehaviour
         if (graphics != null) graphicsBaseScale = graphics.localScale;
 
         jumpsRemaining = maxJumps;
+        wasGrounded = IsGrounded(); // initialize landing tracker
     }
 
     // input, facing, flipping, and jump timers
     void Update()
     {
-
-        animator.SetFloat("Speed", Mathf.Abs(rb.linearVelocity.x));
+        // Brackeys-style Speed param (use velocity or input; velocity feels better)
+        if (animator) animator.SetFloat("Speed", Mathf.Abs(rb.linearVelocity.x));
 
         // facing direction from horizontal input
         if (moveInput.x > 0.1f) facingDir = 1;
@@ -124,7 +126,6 @@ public class PlayerMovement : MonoBehaviour
         // grounded + coyote time refill
         if (IsGrounded())
         {
-            
             lastGroundedTime = coyoteTime;
             jumpsRemaining = maxJumps;
             wallContactTimer = 0f;
@@ -134,10 +135,9 @@ public class PlayerMovement : MonoBehaviour
             lastGroundedTime -= Time.deltaTime;
         }
 
-        // jump buffer (consume press)
+        // jump buffer (store press only; set IsJumping when jump actually happens)
         if (jumpPressed)
         {
-            animator.SetBool("IsJumping", true);
             lastJumpPressedTime = jumpBufferTime;
             jumpPressed = false;
         }
@@ -152,7 +152,7 @@ public class PlayerMovement : MonoBehaviour
     {
         // horizontal movement
         rb.linearVelocity = new Vector2(moveInput.x * moveSpeed, rb.linearVelocity.y);
-        
+
         // detect states
         bool grounded = IsGrounded();
         var wallInfo = CheckWallFacingSizeAware();
@@ -181,8 +181,8 @@ public class PlayerMovement : MonoBehaviour
             else
             {
                 rb.linearVelocity = new Vector2(rb.linearVelocity.x, Mathf.Max(rb.linearVelocity.y, wallSlideSpeed));
-                // If you prefer a constant slide speed instead of a cap:
-                // rb.velocity = new Vector2(rb.velocity.x, wallSlideSpeed);
+                // Or force a constant slide:
+                // rb.linearVelocity = new Vector2(rb.linearVelocity.x, wallSlideSpeed);
             }
         }
         else
@@ -202,6 +202,8 @@ public class PlayerMovement : MonoBehaviour
                 Vector2 impulse = new Vector2(-wallDir * wallJumpImpulse.x, wallJumpImpulse.y);
                 rb.AddForce(impulse, ForceMode2D.Impulse);
 
+                if (animator) animator.SetBool("IsJumping", true); // set at actual jump
+
                 // prevent a free mid-air jump after the wall jump
                 jumpsRemaining = 0;
 
@@ -214,6 +216,8 @@ public class PlayerMovement : MonoBehaviour
                 Vector2 impulse = new Vector2(-wallDir * wallJumpImpulse.x, wallJumpImpulse.y);
                 rb.AddForce(impulse, ForceMode2D.Impulse);
 
+                if (animator) animator.SetBool("IsJumping", true); // set at actual jump
+
                 jumpsRemaining--;
                 lastJumpPressedTime = 0f;
                 wallContactTimer = 0f;
@@ -222,6 +226,8 @@ public class PlayerMovement : MonoBehaviour
             {
                 rb.linearVelocity = new Vector2(rb.linearVelocity.x, 0f);
                 rb.AddForce(Vector2.up * jumpForce, ForceMode2D.Impulse);
+
+                if (animator) animator.SetBool("IsJumping", true); // set at actual jump
 
                 jumpsRemaining--;
                 lastJumpPressedTime = 0f;
@@ -239,6 +245,13 @@ public class PlayerMovement : MonoBehaviour
         {
             rb.linearVelocity = new Vector2(rb.linearVelocity.x, maxFallSpeed);
         }
+
+        bool groundedNow = IsGrounded();
+        if (groundedNow && !wasGrounded)
+        {
+            OnLanding(); // clear IsJumping when we actually land
+        }
+        wasGrounded = groundedNow;
     }
 
     // ground check
@@ -262,25 +275,8 @@ public class PlayerMovement : MonoBehaviour
         return (false, 0);
     }
 
-    // gizmos to visualize ground check & wall box
-    void OnDrawGizmosSelected()
+    public void OnLanding()
     {
-        if (groundCheck != null)
-        {
-            Gizmos.color = Color.yellow;
-            Gizmos.DrawWireSphere(groundCheck.position, groundCheckRadius);
-        }
-
-        var col = GetComponent<Collider2D>();
-        if (col != null)
-        {
-            Bounds b = col.bounds;
-            int dir = Application.isPlaying ? facingDir : 1;
-            Vector2 boxSize = new Vector2(Mathf.Max(0.04f, b.extents.x * 0.25f), b.size.y * 0.6f);
-            float xOff = boxSize.x * 0.6f * dir;
-            Vector3 boxCenter = new Vector3((dir == 1 ? b.max.x : b.min.x) + xOff, b.center.y, 0f);
-            Gizmos.color = Color.cyan;
-            Gizmos.DrawWireCube(boxCenter, boxSize);
-        }
+        animator.SetBool("IsJumping", false);
     }
 }
