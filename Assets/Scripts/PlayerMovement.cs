@@ -63,7 +63,7 @@ public class PlayerMovement : MonoBehaviour
     // enable the correct input map
     void OnEnable()
     {
-        if (playerNumber == 1)
+        if (playerNumber == 2)
         {
             controls.Player1.Enable();
             controls.Player1.Move.performed += ctx => moveInput = ctx.ReadValue<Vector2>();
