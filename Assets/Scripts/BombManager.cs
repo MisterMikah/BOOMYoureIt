@@ -259,12 +259,10 @@ public class BombManager : MonoBehaviour
 
             var rb = players[i].GetComponent<Rigidbody2D>();
             if (rb)
-            {
-#if UNITY_6000_0_OR_NEWER
+            { 
                 if (!enabled) rb.linearVelocity = Vector2.zero;
-#else
-                if (!enabled) rb.velocity = Vector2.zero;
-#endif
+
+
                 rb.angularVelocity = 0f;
                 rb.constraints = enabled
                     ? RigidbodyConstraints2D.FreezeRotation
