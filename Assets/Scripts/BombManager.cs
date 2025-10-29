@@ -1,5 +1,7 @@
 ﻿using UnityEngine;
 using System;
+using UnityEngine.SceneManagement;
+using System.Collections;
 
 public class BombManager : MonoBehaviour
 {
@@ -17,6 +19,16 @@ public class BombManager : MonoBehaviour
 
     [Header("Transfer Rules")]
     public float transferCooldown = 0.3f;
+
+    [Header("Bomb Visuals (one per player)")]
+    [SerializeField] private Bomb[] bombVisuals;   
+    [SerializeField] private float impactLifetime = 2f;
+    [SerializeField] private GameObject impactEffectPrefab;
+
+    [Header("Game Over")]
+    public float gameOverFreezeDelay = 2f;   // time to show boom before Winner scene
+    bool gameOverPending = false;
+
 
     [Header("Meter Source")]
     public BombTugOfWarUI tugOfWarUI;           // assign your UI bar here
@@ -136,13 +148,13 @@ public class BombManager : MonoBehaviour
     {
         phase = Phase.Countdown;
         countdownRemaining = Mathf.Max(0f, preRoundCountdown);
-
         OnPhaseChanged?.Invoke("Countdown");
-
         if (freezePlayersDuringCountdown) SetPlayerInputEnabled(false);
-        // seed the UI on the same frame
         OnCountdownTick?.Invoke(countdownRemaining);
 
+        SyncBombVisualsToCarrier();
+
+        if (MusicManager.Instance != null) MusicManager.Instance.PlayGameMusic();
         if (debugLogging) Debug.Log("[BM] Phase=Countdown");
     }
 
@@ -153,6 +165,8 @@ public class BombManager : MonoBehaviour
 
         if (freezePlayersDuringCountdown) SetPlayerInputEnabled(true);
         OnPhaseChanged?.Invoke("Playing");
+
+
 
         if (debugLogging) Debug.Log("[BM] Phase=Playing");
     }
@@ -186,6 +200,8 @@ public class BombManager : MonoBehaviour
         CurrentCarrier = who;
         CurrentCarrier.SetCarrier(true);
         OnCarrierSet?.Invoke(CurrentCarrier);
+
+        if (phase == Phase.Countdown || phase == Phase.Playing) SyncBombVisualsToCarrier();
     }
 
     // loser = LEAST fill at explosion (per your spec)
@@ -198,9 +214,35 @@ public class BombManager : MonoBehaviour
         else if (v > 0.5f) loserIndex = 1;                // right has less fill
         else loserIndex = IndexOf(CurrentCarrier); // tie → carrier loses
 
+        var vis = GetActiveBombVisual();
+
+        // spawn the effect at the visible bomb’s position, or fallback to carrier
+        if (vis)
+        {
+            vis.ExplodeHere(); // spawns effect and hides that one sprite
+        }
+        else if (CurrentCarrier) // safety fallback
+        {
+            // if somehow neither sprite is visible, still show an effect on the carrier
+            var fx = Instantiate(impactEffectPrefab, CurrentCarrier.transform.position, Quaternion.identity);
+            Destroy(fx, impactLifetime);
+        }
+
+
+
         lives[loserIndex] = Mathf.Max(0, lives[loserIndex] - 1);
         OnLivesChanged?.Invoke(loserIndex, lives[loserIndex]);
         if (lives[loserIndex] <= 0) OnEliminated?.Invoke(loserIndex);
+
+        if (IsGameOver())
+        {
+            if (!gameOverPending)
+            {
+                gameOverPending = true;
+                StartCoroutine(GameOverSequence());  // <- do not load scene immediately
+            }
+            return;  // stop normal post-explosion flow
+        }
     }
 
     void ChooseAndSetNextRoundStarter()
@@ -240,12 +282,8 @@ public class BombManager : MonoBehaviour
             var rb = p.GetComponent<Rigidbody2D>();
             if (rb && resetVelocity)
             {
-#if UNITY_6000_0_OR_NEWER
                 rb.linearVelocity = Vector2.zero;
-#else
-                rb.velocity = Vector2.zero;
-#endif
-                rb.angularVelocity = 0f;
+
             }
         }
     }
@@ -277,6 +315,83 @@ public class BombManager : MonoBehaviour
             if (players[i] == c) return i;
         return -1;
     }
+    Bomb GetActiveBombVisual()
+    {
+        if (bombVisuals == null) return null;
+        for (int i = 0; i < bombVisuals.Length; i++)
+            if (bombVisuals[i] && bombVisuals[i].IsVisible())
+                return bombVisuals[i];
+        return null;
+    }
+
+    void ShowOnlyCarrierBomb()
+    {
+        if (bombVisuals == null) return;
+        for (int i = 0; i < bombVisuals.Length; i++)
+        {
+            var sr = bombVisuals[i]?.GetComponent<SpriteRenderer>();
+            if (!sr) continue;
+            bool isCarrierOwner = bombVisuals[i].transform.IsChildOf(CurrentCarrier.transform);
+            sr.enabled = isCarrierOwner;
+        }
+    }
+
+    void SyncBombVisualsToCarrier()
+{
+    if (bombVisuals == null || CurrentCarrier == null) return;
+
+    for (int i = 0; i < bombVisuals.Length; i++)
+    {
+        var b = bombVisuals[i];
+        if (!b) continue;
+
+        bool belongsToCarrier = b.transform.IsChildOf(CurrentCarrier.transform);
+        if (belongsToCarrier) b.Show();
+        else                  b.Hide();
+        }
+}
+
+    IEnumerator GameOverSequence()
+    {
+        // Freeze players so the moment is clear
+        SetPlayerInputEnabled(false);
+
+        // Make sure the explosion visuals happened on the correct holder
+        var vis = GetActiveBombVisual();
+        if (vis)
+        {
+            vis.ExplodeHere();   // spawns VFX/SFX + hides bomb
+        }
+        else if (impactEffectPrefab && CurrentCarrier)
+        {
+            var fx = Instantiate(impactEffectPrefab, CurrentCarrier.transform.position, Quaternion.identity);
+            Destroy(fx, impactLifetime);
+        }
+
+        // Optional: tell UI a special phase if you want
+        OnPhaseChanged?.Invoke("GameOver");
+
+        // Wait so players can see/hear the boom
+        yield return new WaitForSeconds(gameOverFreezeDelay);
+
+        // Pack result for Winner scene
+        int winner =
+            (players.Length > 0 && players.Length > 1)
+            ? (lives[0] > 0 ? 0 : 1)
+            : 0;
+
+        GameResult.winnerIndex = winner;
+        GameResult.leftLives = (players.Length > 0) ? lives[0] : 0;
+        GameResult.rightLives = (players.Length > 1) ? lives[1] : 0;
+
+        if (MusicManager.Instance) MusicManager.Instance.PlayMenuMusic();
+
+        SceneManager.LoadScene("Winner");
+    }
+
+
+
+
 
     // stubs
     void ScoreWhileHolding(BombCarrier carrier, float delta) { }
